@@ -10,17 +10,6 @@ import com.streakkeeper.view.MainFrame;
 
 import java.nio.file.Path;
 
-/**
- * The controller glue. It:
- *   • registers itself as a {@link com.streakkeeper.model.ModelListener},
- *   • wires view callbacks to model mutations,
- *   • mediates the {@link HoldListener} so hold-complete leads to
- *     "model decides → view animates accordingly".
- *
- * <p>This class deliberately does NOT import Swing: all modals and dialogs are
- * encapsulated as {@code MainFrame} methods. Only domain/view-specific types
- * are imported.</p>
- */
 public class AppController {
 
     private final StreakModel model;
@@ -33,28 +22,18 @@ public class AppController {
         this.persistence = persistence;
     }
 
-    // -------------------------------------------------------------- init
-
     public void init() {
         model.ensureValidSelection();
-
-        // Prime sidebar with persisted state (no animation on first paint).
         view.primeSidebarState(model.isSidebarExpanded());
-
-        // Model → View
         model.addListener(this::onModelChanged);
 
-        // View → Controller
         wireTopBar();
         wireSidebar();
         wireCounterPanel();
         wireMenuActions();
         wireHoldButton();
 
-        // Initial paint
         onModelChanged();
-
-        // Give the HoldButton focus so SPACE hold-to-increment works right away.
         view.getHoldButton().requestFocusInWindow();
     }
 
@@ -99,21 +78,17 @@ public class AppController {
     private void wireHoldButton() {
         view.getHoldButton().addListener(new HoldListener() {
             @Override public void onHoldComplete() { handleHoldComplete(); }
-            @Override public void onHoldStarted()  { /* view-only animation */ }
-            @Override public void onHoldCancelled(double progress) { /* view-only */ }
+            @Override public void onHoldStarted()  { }
+            @Override public void onHoldCancelled(double progress) { }
         });
     }
 
-    // ------------------------------------------------------- event handlers
-
-    /**
-     * On hold completion the model decides whether the increment is allowed.
-     * The view's pulse/color already fired inside {@code HoldButton} — we just
-     * decide whether to reflect a numeric change.
-     */
     private void handleHoldComplete() {
         Counter selected = model.getSelectedCounter();
         if (selected == null) return;
+
+        // Play the optimized, smooth particle burst celebration
+        view.triggerCelebration();
 
         boolean success = model.attemptIncrementSelected();
         if (success) {
@@ -124,8 +99,6 @@ public class AppController {
             }
             saveState();
         }
-        // If not success → "toy state": button already pulsed/changed color in
-        // the view; the number is intentionally left untouched.
     }
 
     private void handleNewCounter() {
@@ -208,8 +181,6 @@ public class AppController {
         try {
             StreakModel imported = persistence.loadFrom(p);
             imported.ensureValidSelection();
-            // Swap the model content wholesale (keeping the same model instance
-            // and listener list so any external references remain valid).
             copyStateFrom(imported);
             saveState();
             view.showInfo("Imported " + model.getCounters().size() + " counters.");
@@ -224,8 +195,6 @@ public class AppController {
         System.exit(0);
     }
 
-    // -------------------------------------------------------------- helpers
-
     private void onModelChanged() {
         view.updateFromModel(model);
     }
@@ -238,11 +207,6 @@ public class AppController {
         }
     }
 
-    /**
-     * Copies the contents of the imported model into the current one so that
-     * listeners, references, and any live view state stay attached to the same
-     * instance.
-     */
     private void copyStateFrom(StreakModel other) {
         model.getCounters().clear();
         model.getCounters().addAll(other.getCounters());
@@ -252,9 +216,7 @@ public class AppController {
         model.setDarkTheme(other.isDarkTheme());
         model.setSidebarExpanded(other.isSidebarExpanded());
         model.ensureValidSelection();
-        // Force a refresh
         model.setDarkTheme(model.isDarkTheme() == other.isDarkTheme()
                 ? model.isDarkTheme() : other.isDarkTheme());
-        // Note: the model's fireChanged runs on the setters above.
     }
 }

@@ -6,7 +6,6 @@ import com.streakkeeper.model.StreakModel;
 import com.streakkeeper.util.ThemeManager;
 
 import javax.swing.AbstractAction;
-import javax.swing.BorderFactory;
 import javax.swing.JFileChooser;
 import javax.swing.JFrame;
 import javax.swing.JMenu;
@@ -16,27 +15,25 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.KeyStroke;
 import java.awt.BorderLayout;
+import java.awt.Color;
 import java.awt.Dimension;
+import java.awt.Point;
 import java.awt.event.ActionEvent;
 import java.awt.event.InputEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
+import java.awt.geom.Point2D;
 import java.io.File;
 import java.nio.file.Path;
 
-/**
- * Top-level window. Holds the sub-views, owns dialog helpers (this is the
- * reason the controller stays Swing-free — all modal interaction lives here),
- * and wires global keyboard shortcuts.
- */
 public class MainFrame extends JFrame {
 
     private final TopBar       topBar       = new TopBar();
     private final Sidebar      sidebar      = new Sidebar();
     private final CounterPanel counterPanel = new CounterPanel();
+    private final CelebrationOverlay celebrationOverlay = new CelebrationOverlay();
 
-    // Callbacks registered by the controller
     private Runnable onNewCounter;
     private Runnable onResetSelected;
     private Runnable onRenameSelected;
@@ -47,7 +44,6 @@ public class MainFrame extends JFrame {
     private Runnable onImport;
     private Runnable onExit;
 
-    /** Track so we only re-theme when the persisted flag actually changes. */
     private boolean currentDark;
 
     public MainFrame() {
@@ -60,8 +56,11 @@ public class MainFrame extends JFrame {
         });
 
         setMinimumSize(new Dimension(820, 620));
-        setSize(1080, 720);
+        setSize(1080, 800);
         setLocationRelativeTo(null);
+
+        // Install the lightweight particle overlay
+        setGlassPane(celebrationOverlay);
 
         setJMenuBar(buildMenuBar());
 
@@ -76,20 +75,15 @@ public class MainFrame extends JFrame {
 
         installGlobalShortcuts();
 
-        // Wire internal view → callbacks
         topBar.setOnNewCounter(() -> { if (onNewCounter != null) onNewCounter.run(); });
         topBar.setOnThemeToggle(() -> { if (onToggleTheme != null) onToggleTheme.run(); });
         topBar.setOnSidebarToggle(() -> { if (onToggleSidebar != null) onToggleSidebar.run(); });
     }
 
-    // ------------------------------------------------------ accessors
-
     public TopBar       getTopBar()       { return topBar; }
     public Sidebar      getSidebar()      { return sidebar; }
     public CounterPanel getCounterPanel() { return counterPanel; }
     public HoldButton   getHoldButton()   { return counterPanel.getHoldButton(); }
-
-    // ------------------------------------------------------- callbacks
 
     public void setOnNewCounter(Runnable r)      { this.onNewCounter = r; }
     public void setOnResetSelected(Runnable r)   { this.onResetSelected = r; }
@@ -101,24 +95,35 @@ public class MainFrame extends JFrame {
     public void setOnImport(Runnable r)          { this.onImport = r; }
     public void setOnExit(Runnable r)            { this.onExit = r; }
 
-    // ------------------------------------------------------ model sync
-
     public void updateFromModel(StreakModel model) {
-        // Theme: apply only when it actually changed.
         if (model.isDarkTheme() != currentDark) {
             currentDark = model.isDarkTheme();
             ThemeManager.applyTheme(currentDark);
         }
         topBar.setDarkTheme(model.isDarkTheme());
-
         sidebar.updateFromModel(model);
         sidebar.setExpanded(model.isSidebarExpanded());
         counterPanel.updateFromModel(model);
     }
 
-    /** Called once at startup so the sidebar doesn't animate in from scratch. */
     public void primeSidebarState(boolean expanded) {
         sidebar.setExpandedInstant(expanded);
+    }
+
+    // ------------------------------------------------------ animations
+
+    /** Triggers the particle and ring celebration overlay. */
+    public void triggerCelebration() {
+        HoldButton btn = getCounterPanel().getHoldButton();
+        Point p = btn.getLocationOnScreen();
+        Point frameP = getLocationOnScreen();
+
+        double centerX = p.x - frameP.x + btn.getWidth() / 2.0;
+        double centerY = p.y - frameP.y + btn.getHeight() / 2.0;
+
+        Color waveColor = btn.getCurrentColor();
+
+        celebrationOverlay.playCelebration(new Point2D.Double(centerX, centerY), waveColor);
     }
 
     // --------------------------------------------------------- dialogs
@@ -135,18 +140,14 @@ public class MainFrame extends JFrame {
         int r = JOptionPane.showConfirmDialog(this,
                 "Reset \"" + counterName + "\" back to its start value?\n"
                         + "This will clear its current streak.",
-                "Confirm reset",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
+                "Confirm reset", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         return r == JOptionPane.YES_OPTION;
     }
 
     public boolean confirmDelete(String counterName) {
         int r = JOptionPane.showConfirmDialog(this,
                 "Delete \"" + counterName + "\"?\nThis cannot be undone.",
-                "Confirm delete",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.WARNING_MESSAGE);
+                "Confirm delete", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         return r == JOptionPane.YES_OPTION;
     }
 
@@ -177,7 +178,6 @@ public class MainFrame extends JFrame {
 
     private JMenuBar buildMenuBar() {
         JMenuBar bar = new JMenuBar();
-
         JMenu file = new JMenu("File");
 
         JMenuItem newItem = new JMenuItem("New Counter");
@@ -230,10 +230,7 @@ public class MainFrame extends JFrame {
         return bar;
     }
 
-    // --------------------------------------------------- keyboard shortcuts
-
     private void installGlobalShortcuts() {
-        // Global (WHEN_IN_FOCUSED_WINDOW) so they work regardless of what has focus.
         getRootPane().getInputMap(JPanel.WHEN_IN_FOCUSED_WINDOW)
                 .put(KeyStroke.getKeyStroke(KeyEvent.VK_N, InputEvent.CTRL_DOWN_MASK), "newCounter");
         getRootPane().getActionMap().put("newCounter", new AbstractAction() {
@@ -257,10 +254,5 @@ public class MainFrame extends JFrame {
                 if (onToggleTheme != null) onToggleTheme.run();
             }
         });
-
-        // Space: the HoldButton binds it WHEN_FOCUSED. To make space work
-        // "when focused", we focus the hold button when any component inside
-        // the counter panel is not a text field. Simplest: focus it in startup
-        // and leave it to standard focus traversal. Handled in AppController.
     }
 }

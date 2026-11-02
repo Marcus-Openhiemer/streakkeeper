@@ -7,10 +7,6 @@ import java.util.Random;
 
 /**
  * Produces vivid, dopamine-y colors for the hold button.
- *
- * <p>Design: high saturation (0.75–1.0) and mid-high brightness (0.78–0.95)
- * in HSV — enough contrast that white text remains readable, but vivid enough
- * that each increment feels fresh.</p>
  */
 public final class ColorGenerator {
 
@@ -20,17 +16,36 @@ public final class ColorGenerator {
 
     public static Color nextVividColor() {
         float hue = RNG.nextFloat();
-        float sat = 0.75f + RNG.nextFloat() * 0.25f;   // 0.75 – 1.00
-        float bri = 0.78f + RNG.nextFloat() * 0.17f;   // 0.78 – 0.95
+        // Push saturation and brightness much higher for a "neon" effect.
+        float sat = 0.85f + RNG.nextFloat() * 0.15f;   // 0.85 – 1.00
+        float bri = 0.85f + RNG.nextFloat() * 0.15f;   // 0.85 – 1.00
         return Color.getHSBColor(hue, sat, bri);
     }
 
-    /** Linear RGB interpolation between two colors. */
-    public static Color lerp(Color a, Color b, double t) {
-        double c = Math.max(0, Math.min(1, t));
-        int r = (int) Math.round(a.getRed()   + (b.getRed()   - a.getRed())   * c);
-        int g = (int) Math.round(a.getGreen() + (b.getGreen() - a.getGreen()) * c);
-        int bl = (int) Math.round(a.getBlue() + (b.getBlue()  - a.getBlue())  * c);
-        return new Color(r, g, bl);
+    /**
+     * Interpolates between two colors in HSB space.
+     * This prevents the "muddy middle" effect of RGB lerping, keeping the
+     * transitioning colors vivid and highly saturated at all times.
+     */
+    public static Color lerpHSB(Color a, Color b, double t) {
+        float c = (float) Math.max(0, Math.min(1, t));
+        float[] hsbA = Color.RGBtoHSB(a.getRed(), a.getGreen(), a.getBlue(), null);
+        float[] hsbB = Color.RGBtoHSB(b.getRed(), b.getGreen(), b.getBlue(), null);
+
+        // Hue interpolation (handle wrap-around)
+        float hueDiff = hsbB[0] - hsbA[0];
+        if (hueDiff > 0.5f) {
+            hsbA[0] += 1.0f;
+        } else if (hueDiff < -0.5f) {
+            hsbB[0] += 1.0f;
+        }
+
+        float h = hsbA[0] + (hsbB[0] - hsbA[0]) * c;
+        if (h >= 1.0f) h -= 1.0f;
+
+        float s = hsbA[1] + (hsbB[1] - hsbA[1]) * c;
+        float br = hsbA[2] + (hsbB[2] - hsbA[2]) * c;
+
+        return Color.getHSBColor(h, s, br);
     }
 }
